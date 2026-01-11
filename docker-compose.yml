@@ -1,0 +1,76 @@
+version: '3.8'
+
+# Independent deployment for alx-backend-caching_property_listings
+# This allows this service to be deployed independently
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: caching-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-property_db}
+      POSTGRES_USER: ${POSTGRES_USER:-property_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-property_pass}
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - caching-db-data:/var/lib/postgresql/data
+    networks:
+      - caching-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-property_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: caching-redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - caching-redis-data:/data
+    networks:
+      - caching-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Caching Service
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: caching-service
+    command: python manage.py runserver 0.0.0.0:8001
+    volumes:
+      - .:/app
+    ports:
+      - "${PORT:-8001}:8001"
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-change-this}
+      - DEBUG=${DEBUG:-True}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-property_user}:${POSTGRES_PASSWORD:-property_pass}@postgres:5432/${POSTGRES_DB:-property_db}
+      - REDIS_URL=redis://redis:6379/2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - caching-network
+
+networks:
+  caching-network:
+    driver: bridge
+    # Use external network if deploying with other services
+    # external: true
+    # name: alx-network
+
+volumes:
+  caching-db-data:
+  caching-redis-data:
